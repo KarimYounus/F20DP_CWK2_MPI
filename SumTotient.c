@@ -1,5 +1,5 @@
 //
-// Created by Karim Younus on 25/03/2024.
+// Created by Karim Younus on 20/03/2024.
 //
 #include <stdbool.h>
 #include <printf.h>
@@ -41,7 +41,19 @@ long euler(unsigned long n) {
     return count;
 }
 
-long sumTotientsSequential(unsigned long lower, unsigned long upper) {
+long sumTotientsParalllel(unsigned long lower, unsigned long upper) {
+    // Function to sum the totients across a range of numbers from n=lower to n=upper
+
+    unsigned sum = 0;
+    unsigned n;
+
+    for (n = lower; n <= upper; n++)
+        sum = sum + euler(n);
+
+    return sum;
+}
+
+long sumTotients(unsigned long lower, unsigned long upper) {
     // Function to sum the totients across a range of numbers from n=lower to n=upper
 
     unsigned sum = 0;
@@ -80,20 +92,34 @@ int main(int argc, char *argv[])
     // Run sequentially if seq argument is given
     if (seq) {
         printf("C: Sum of Totients  between [%ld..%ld] is %ld\n",
-               lower, upper, sumTotientsSequential(lower, upper));
+               lower, upper, sumTotients(lower, upper));
     }
 
     //Init MPI
     MPI_Init(&argc, &argv);
-
     int world_size, world_rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    unsigned long local_sum, global_sum;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank); // Assign a unique ID to each process in the scope
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size); // Get the number of unique processes in the scope
 
+    printf("MPI Comm Size=[%i]", world_size);
+
+    // Calculate the workload distribution
+    unsigned long local_lower = lower + (upper - lower) / world_size * world_rank;
+    unsigned long local_upper = lower + (upper - lower) / world_size * (world_rank + 1);
+    if (world_rank == world_size - 1) local_upper = upper; // Ensure the last process goes up to 'upper'
+
+    // Perform local summation of totients for the current rank
+    local_sum = sumTotients(local_lower, local_upper);
+
+    // Get all local sums and add to obtain final result (in the root process)
+    MPI_Reduce(&local_sum, &global_sum, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (world_rank == 0) {
+        printf("Total sum of Euler's Totient function from %ld to %ld is: %ld\n", lower, upper, global_sum);
+    }
 
     MPI_Finalize();
-
-
 
     return 0;
 }
