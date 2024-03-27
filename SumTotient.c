@@ -65,10 +65,38 @@ long sumTotients(unsigned long lower, unsigned long upper) {
     return sum;
 }
 
+void output_metrics(const char* filename, long upper, double exec_t, int n_cores) {
+    FILE *fp;
+
+    // Open the file. If the file does not exist, it will be created.
+    fp = fopen(filename, "a");
+    if (fp == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    // Check if file is empty to write header
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    if (size == 0) {
+        fprintf(fp, "\"Upper\",\"Execution Time\", \"Core Count\"\n");
+    }
+
+    // Move back to the end of the file to append data
+    fseek(fp, 0, SEEK_END);
+
+    // Write the metrics to the file in CSV format
+    fprintf(fp, "%ld, %f, %d", upper, exec_t, n_cores);
+
+    // Close the file
+    fclose(fp);
+}
+
 int main(int argc, char *argv[])
 {
     // Algorithm Bounds
     long lower, upper;
+    double start_time, end_time, runtime;
     bool seq;
     char *filename = NULL;
 
@@ -102,7 +130,11 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank); // Assign a unique ID to each process in the scope
     MPI_Comm_size(MPI_COMM_WORLD, &world_size); // Get the number of unique processes in the scope
 
-    printf("MPI Comm Size=[%i]", world_size);
+    if (world_rank == 0) {
+        start_time = MPI_Wtime();
+        printf("MPI Comm Size=[%i]\n", world_size);
+        printf("Lower=[%ld], Upper=[%ld]\n", lower, upper);
+    }
 
     // Calculate the workload distribution
     unsigned long local_lower = lower + (upper - lower) / world_size * world_rank;
@@ -116,9 +148,10 @@ int main(int argc, char *argv[])
     MPI_Reduce(&local_sum, &global_sum, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 
     if (world_rank == 0) {
-        printf("Total sum of Euler's Totient function from %ld to %ld is: %ld\n", lower, upper, global_sum);
+        end_time = MPI_Wtime();
+        runtime = end_time - start_time;
+        printf("Total sum of Euler's Totient function from %ld to %ld is: %ld\nRuntime=[%f]\n", lower, upper, global_sum, runtime);
     }
-
     MPI_Finalize();
 
     return 0;
