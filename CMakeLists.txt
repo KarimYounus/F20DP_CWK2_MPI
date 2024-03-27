@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17.3)
 project(F20DP_CWK2_MPI C)
 set(CMAKE_C_COMPILER "gcc")
-set(CMAKE_VERBOSE_MAKEFILE on)
+#set(CMAKE_VERBOSE_MAKEFILE on)
 
 #add_library(F20DP_CWK1_OMP STATIC SumTotient.c)
 # Find the MPI package
@@ -30,13 +30,13 @@ message(STATUS "MPI_C_LIBRARIES: ${MPI_C_LIBRARIES}")
 
 # Custom target to run the program
 add_custom_target(run_seq
-        COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 10000
+        COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 1000 --seq
         DEPENDS program
         WORKING_DIRECTORY ${CMAKE_PROJECT_DIR}
 )
 
 add_custom_target(run_para
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 -bind-to core ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 30000
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 -bind-to core ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 10000 --half_chunk --filename test.csv
         DEPENDS program
         WORKING_DIRECTORY ${CMAKE_PROJECT_DIR}
 )
