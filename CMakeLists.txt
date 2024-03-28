@@ -30,13 +30,13 @@ message(STATUS "MPI_C_LIBRARIES: ${MPI_C_LIBRARIES}")
 
 # Custom target to run the program
 add_custom_target(run_seq
-        COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 1000 --seq
+        COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 10000 --seq
         DEPENDS program
         WORKING_DIRECTORY ${CMAKE_PROJECT_DIR}
 )
 
 add_custom_target(run_para
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 -bind-to core ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 10000 --half_chunk --filename test.csv
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS} ./program ${MPIEXEC_POSTFLAGS} 0 10000 --dynamic 1 --filename test.csv
         DEPENDS program
         WORKING_DIRECTORY ${CMAKE_PROJECT_DIR}
 )
