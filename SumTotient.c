@@ -150,12 +150,90 @@ Workload calculateWorkload(int rank, int size, unsigned long lower, unsigned lon
     return workload;
 }
 
+unsigned long calculateTotalWeight(unsigned long lower, unsigned long upper) {
+//    Assuming the computational weight of each number n is proportional to n itself,
+//    the total weight of a range can be approximated by the sum of all numbers in the range.
+    unsigned long total_weight;
+
+    // The formula for the sum of the first N natural numbers is N*(N+1)/2.
+    // To find the sum of a range, we use the formula for the upper bound and subtract the sum for (lower-1).
+    unsigned long long upper_sum = upper * (upper + 1) / 2;
+    unsigned long long lower_sum = (lower > 0) ? (lower - 1) * (lower) / 2 : 0;
+
+    total_weight = (upper_sum - lower_sum);
+
+    return total_weight;
+}
+
+// Find next upper bound based on given computational weight
+unsigned long countToWeight(unsigned long lower, double weight) {
+    double current_weight = 0;
+    unsigned long upper = lower;
+
+    while(current_weight < weight) {
+        current_weight += upper;
+        upper++;
+    }
+    // Return the previous upper before we surpassed the weight limit
+    return upper-1;
+}
+
+// Assign each process an equal amount of computational work
+Chunk calculateWorkloads(int rank, int size, unsigned long lower, unsigned long upper) {
+    // Get the total number of integers to cover
+    int total_range = upper - lower;
+    // Get the total weight of the range
+    unsigned long total_weight = calculateTotalWeight(lower, upper);
+    if (rank == 0) printf("Total Weight = %lu, ", total_weight);
+    // Get the average weight per process for the current world size, rounding down to leave a remainder for the last process
+    int weight_per_process = total_weight / size;
+    if (rank == 0) printf("Process Weight = %i\n", weight_per_process);
+
+    // At the start, we have the entire range to cover
+    unsigned long remaining_range = total_range;
+//    if (rank==0) printf("Range = %lu\n", remaining_range);
+    // At the start, the lower for the current chunk is just the lower
+    unsigned long current_lower = lower;
+    unsigned long current_upper;
+
+    // For each process in the world
+    for (int i=0; i<size; i++) {
+        // Calculate the next upper by summing the integers from the current lower until we accumulate the average weight
+        current_upper = countToWeight(current_lower, weight_per_process);
+
+        // Assign chunks to each process . . .
+        if (rank == i) {
+            // If last process, assign upper as remaining range to cleanup
+            if (rank == size-1) {
+                Chunk chunk;
+                chunk.lower = current_lower;
+                chunk.upper = current_lower+remaining_range;
+//                printf("Remaining Range = %lu\n", remaining_range);
+                printf("Rank = [%i], L/U = %lu > %lu\n", rank, chunk.lower, chunk.upper);
+                return chunk;
+            }
+            // Normal Assignment
+            Chunk chunk;
+            chunk.lower = current_lower;
+            chunk.upper = current_upper;
+            printf("Rank = [%i], L/U = %lu > %lu\n", rank, chunk.lower, chunk.upper);
+            return chunk;
+        }
+        // Remove this chunk from the remaining range
+        remaining_range = remaining_range - (current_upper - current_lower) - 1;
+        // Set the lower for the next chunk as the upper of this chunk + 1
+        current_lower = current_upper+1;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     // Algorithm Bounds
     long lower, upper;
-    double start_time, end_time, runtime, multiplier;
-    bool seq, chunk;
+    // Time tracking
+    double start_time, end_time, runtime;
+    // Optional Args
+    bool seq, dynamic;
     char *filename = NULL;
 
     // Parse arguments
@@ -164,9 +242,8 @@ int main(int argc, char *argv[])
             seq = true;
             continue;
         }
-        if (strcmp(argv[i], "--dynamic") == 0 && i + 1 < argc) {    // Dynamic chunking? - check to ensure there is at least one more arg after the flag
-            chunk = true;
-            multiplier = atof(argv[++i]);
+        if (strcmp(argv[i], "--dynamic") == 0) {    // Dynamic chunking?
+            dynamic = true;
             continue;
         }
         if (strcmp(argv[i], "--filename") == 0 && i + 1 < argc) {   // Filename? - check to ensure there is at least one more arg after the flag
@@ -185,64 +262,44 @@ int main(int argc, char *argv[])
         MPI_Init(&argc, &argv);
         int world_size, world_rank;
         unsigned long local_sum, global_sum, local_lower, local_upper;
-
         MPI_Comm_rank(MPI_COMM_WORLD, &world_rank); // Assign a unique ID to each process in the scope
         MPI_Comm_size(MPI_COMM_WORLD, &world_size); // Get the number of unique processes in the scope
-
         if (world_rank == 0) {
             start_time = MPI_Wtime();
-            if (chunk) {
+            if (dynamic) {
                 printf("Using dynamic chunking . . .\n");
             }
             printf("MPI Comm Size=[%i]\n", world_size);
             printf("Lower=[%ld], Upper=[%ld]\n", lower, upper);
         }
 
-        // Workload object for potential dynamic chunking
-        Workload workload;
-
-        // Calculate the workload distribution
-        if (chunk) {
+        // Calculate the workload distribution for each process
+        if (dynamic) {
             // If dynamic chunking, calculate chunks across the given range
-            workload = calculateWorkload(world_rank, world_size, lower, upper, multiplier);
-            if (world_rank == 0) {
-                printf("Workload: [%i] processes processing approximately [%d] chunks each\n", world_size,
-                       (workload.num_chunks / world_size));
-            }
+            Chunk chunk;
+            chunk = calculateWorkloads(world_rank, world_size, lower, upper);
+            local_lower = chunk.lower;
+            local_upper = chunk.upper;
         }
         else {
             // Else just split the range equally
             unsigned long range = upper - lower + 1;
             unsigned long chunk_size = range / world_size;
             unsigned long remainder = range % world_size;
-
             local_lower = lower + chunk_size * world_rank;
             local_upper = local_lower + chunk_size - 1;
+            // Cleanup remainder
             if (world_rank == world_size - 1) {
                 local_upper += remainder;
             }
         }
 
-        // Perform local summation of totients for the current rank
-        local_sum = 0;
-        if (chunk) {
-            // Use Dynamic Chunking, processing each chunk in the workload struct
-            for (int i = 0; i < workload.num_chunks; i++) {
-                unsigned long chunk_lower = workload.chunks[i].lower;
-                unsigned long chunk_upper = workload.chunks[i].upper;
-                // Only print the chunk range if it belongs to the current process
-                if (chunk_lower != 0 || chunk_upper != 0) {
-                    printf("Process %d handling range [%lu, %lu]\n", world_rank, chunk_lower, chunk_upper);
-                }
-                local_sum += sumTotients(chunk_lower, chunk_upper);
-            }
-            // Free the memory allocated for the chunks
-            free(workload.chunks);
-        } else {
-            // Use Equal Chunking
-            printf("Process %d handling range [%lu, %lu]\n", world_rank, local_lower, local_upper);
-            local_sum = sumTotients(local_lower, local_upper);
-        }
+        // Barrier for tidy printing
+        MPI_Barrier(MPI_COMM_WORLD);
+//        if (world_rank == 0) printf("Summing . . . \n");
+        // Calculate local sum for the assigned range
+        local_sum = sumTotients(local_lower, local_upper);
+//        printf("%lu\n", local_sum);
 
         // Get all local sums and add to obtain final result (in the root process)
         MPI_Reduce(&local_sum, &global_sum, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -259,7 +316,7 @@ int main(int argc, char *argv[])
         }
         MPI_Finalize();
     } else {
-        // If seq is true, run sequentially
+        // Else seq is true, run sequentially
         clock_t start, end;
 
         start = clock(); // Start the timer
@@ -278,6 +335,5 @@ int main(int argc, char *argv[])
         }
         return 0;
     }
-
     return 0;
 }
