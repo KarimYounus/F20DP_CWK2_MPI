@@ -1,13 +1,20 @@
 #!/bin/bash
+#SBATCH --partition=amd-longq
+#SBATCH --job-name=sum_totients
+#SBATCH --output=sum_totients_%j.out
+#SBATCH --error=sum_totients_error_%j.out
 
 # Load the necessary modules
-module load intel/mpi/64
+module load mpich
 
 # Define an array of MPI processes to use "2" "4" "8" "16" "32" "64" "96" "128" "160"
-declare -a mpi_processes=("1" "2" "4" "8" "16" "32" "64" "128" "192")
+declare -a mpi_processes=("2" "4" "8" "16" "32" "64" "96" "128" "160" "192")
 
 # Define the dataset ranges
 declare -a datasets=("1 15000" "1 30000" "1 100000")
+
+# Define whether to use the --dynamic flag
+declare -a dynamic_modes=("" "--dynamic")
 
 # Calculate nodes and tasks for each MPI process setup
 for mpi_procs in "${mpi_processes[@]}"; do
@@ -26,13 +33,28 @@ for mpi_procs in "${mpi_processes[@]}"; do
         lower=${ADDR[0]}
         upper=${ADDR[1]}
 
-        # Construct the filename based on the dataset and mpi process count
-        filename="benchmark_${upper}.csv"
+        for dynamic in "${dynamic_modes[@]}"; do
+          # Adjust filename based on whether --dynamic is used
+          if [ -z "$dynamic" ]; then
+              filename="benchmark_${upper}.csv"
+          else
+              filename="benchmark_${upper}_dynamic.csv"
+          fi
 
-        # Execute the program using srun
-        for iteration in {1..3}; do
-            echo "Running: MPI Processes = $mpi_procs, Range = $lower to $upper, Iteration = $iteration"
-            srun --partition=amd-longq --ntasks="$mpi_procs" --nodes=$required_nodes --ntasks-per-node=64 --mpi=pmi2 SumTotient "$lower" "$upper" --filename "$filename"
+          for iteration in {1..3}; do
+            sbatch <<EOF
+#!/bin/bash
+#SBATCH --partition=amd-longq
+#SBATCH --nodes=$required_nodes
+#SBATCH --ntasks=$mpi_procs
+#SBATCH --job-name=sum_totients_$mpi_procs
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
+
+module load mpich
+mpirun ./SumTotient $lower $upper $dynamic --filename $filename
+EOF
+            done
         done
     done
 done
