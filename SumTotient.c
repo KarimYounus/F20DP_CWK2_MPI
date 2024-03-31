@@ -16,12 +16,6 @@ typedef struct {
     unsigned long upper;
 } Chunk;
 
-// Define a struct to represent the workload
-typedef struct {
-    Chunk* chunks;
-    int num_chunks;
-} Workload;
-
 long gcdEuclid(unsigned long a, unsigned long b) {
     /*
     - Function to calculate the greatest common divisor (GCD) of two numbers.
@@ -94,71 +88,19 @@ void output_metrics(const char* filename, long upper, double exec_t, int n_cores
     fclose(fp);
 }
 
-// Function to calculate the workload and return a Workload struct
-Workload calculateWorkload(int rank, int size, unsigned long lower, unsigned long upper, double chunk_multiplier) {
-    // Calculate the total range of numbers
-    unsigned long range = upper - lower + 1;
-
-    // Calculate the total number of chunks by multiplying the number of processes by the chunk multiplier and rounding to the nearest integer
-    int num_chunks = (int)round(size * chunk_multiplier);
-
-    // Allocate memory for the array of chunks
-    Chunk* chunks = (Chunk*)malloc(num_chunks * sizeof(Chunk));
-
-    // Calculate the chunk size by dividing the range by the total number of chunks
-    unsigned long chunk_size = range / num_chunks;
-
-    // Calculate the remainder (numbers left after dividing the range by the number of chunks)
-    unsigned long remainder = range % num_chunks;
-
-    // Calculate the start index of the chunk for the current process
-    int chunk_start = (int)round(rank * chunk_multiplier);
-
-    // Calculate the end index of the chunk for the current process
-    int chunk_end = (int)round((rank + 1) * chunk_multiplier);
-
-    // Iterate over the chunks assigned to the current process
-    for (int i = chunk_start; i < chunk_end && i < num_chunks; i++) {
-        // Calculate the lower bound for the current chunk
-        chunks[i].lower = lower + i * chunk_size;
-
-        // Adjust the lower bound based on the remainder
-        if (i < remainder) {
-            chunks[i].lower += i;
-        } else {
-            chunks[i].lower += remainder;
-        }
-
-        // Calculate the upper bound for the current chunk
-        if (i < remainder) {
-            chunks[i].upper = chunks[i].lower + chunk_size;
-        } else {
-            chunks[i].upper = chunks[i].lower + chunk_size - 1;
-        }
-
-        // Adjust the upper bound for the last chunk to ensure it ends at the upper bound of the range
-        if (i == num_chunks - 1) {
-            chunks[i].upper = upper;
-        }
-    }
-
-    // Create a Workload struct to hold the chunks and the number of chunks
-    Workload workload;
-    workload.chunks = chunks;
-    workload.num_chunks = num_chunks;
-
-    return workload;
-}
-
 unsigned long calculateTotalWeight(unsigned long lower, unsigned long upper) {
-//    Assuming the computational weight of each number n is proportional to n itself,
 //    the total weight of a range can be approximated by the sum of all numbers in the range.
     unsigned long total_weight;
 
     // The formula for the sum of the first N natural numbers is N*(N+1)/2.
     // To find the sum of a range, we use the formula for the upper bound and subtract the sum for (lower-1).
     unsigned long long upper_sum = upper * (upper + 1) / 2;
-    unsigned long long lower_sum = (lower > 0) ? (lower - 1) * (lower) / 2 : 0;
+    unsigned long long lower_sum;
+    if (lower > 0) {
+        lower_sum = (lower - 1) * (lower) / 2;
+    } else {
+        lower_sum = 0;
+    }
 
     total_weight = (upper_sum - lower_sum);
 
@@ -181,16 +123,14 @@ unsigned long countToWeight(unsigned long lower, double weight) {
 // Assign each process an equal amount of computational work
 Chunk calculateWorkloads(int rank, int size, unsigned long lower, unsigned long upper) {
     // Get the total number of integers to cover
-    int total_range = upper - lower;
+    unsigned long remaining_range = upper - lower;
     // Get the total weight of the range
     unsigned long total_weight = calculateTotalWeight(lower, upper);
     if (rank == 0) printf("Total Weight = %lu, ", total_weight);
-    // Get the average weight per process for the current world size, rounding down to leave a remainder for the last process
+    // Get the average weight per process for the current world size
     int weight_per_process = total_weight / size;
     if (rank == 0) printf("Process Weight = %i\n", weight_per_process);
 
-    // At the start, we have the entire range to cover
-    unsigned long remaining_range = total_range;
 //    if (rank==0) printf("Range = %lu\n", remaining_range);
     // At the start, the lower for the current chunk is just the lower
     unsigned long current_lower = lower;
